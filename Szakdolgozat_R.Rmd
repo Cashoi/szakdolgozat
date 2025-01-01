@@ -1,0 +1,749 @@
+---
+title: "Szakdolgozat R kódok"
+author: "Kasoly Benedek"
+date: "2025-01-01"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(fig.width = 8, fig.height = 8)
+
+library(copula)
+library(stabledist)
+library(VineCopula)
+library(corrplot)
+library(HAC)
+library(ggplot2)
+library(network)
+```
+
+Gumbel és Clayton kopulák paraméterei a Kendall-féle $\tau$-ból számolva
+
+```{r,eval=TRUE, echo=TRUE}
+taus = c(0.1, 0.5, 0.8, 0.95)
+
+theta_gumbel <- function(tau){
+  1/(1-tau)
+}
+
+theta_clayton <- function(tau){
+  2/(1-tau)-2
+} 
+```
+
+Clayton kopulák különböző paraméterekkel
+
+```{r,eval=TRUE, echo=TRUE}
+
+par(pty="s", mfrow = c(2, 4), mar = c(1,1,3,1))
+
+for (tau in taus)
+{
+  theta = theta_clayton(tau)
+  clayton = claytonCopula(dim = 2, theta)
+  minta_clayton =  rCopula(3000, clayton)
+  plot(minta_clayton, pch=20, cex=0.5, xlim=c(0,1), ylim=c(0,1), xlab="", ylab="", main=paste("τ = ", round(tau, 5), "\nθ = ",  round(theta, 5)))
+}
+```
+
+Gumbel kopulák különböző paraméterekkel
+
+```{r,eval=TRUE, echo=TRUE}
+
+par(pty="s", mfrow = c(1, 4), mar = c(1,1,3,1))
+
+for (tau in taus)
+{
+  theta = theta_gumbel(tau)
+  gumbel = gumbelCopula(dim = 2, theta)
+  minta_gumbel =  rCopula(3000, gumbel)
+  plot(minta_gumbel, pch=20, cex=0.5, xlim=c(0,1), ylim=c(0,1), xlab="", ylab="", main=paste("τ = ", round(tau, 5), "\nθ = ", round(theta, 5)))
+}
+```
+
+$\psi$ függvény és annak inverze Gumbel kopula esetén
+
+```{r,eval=TRUE, echo=TRUE}
+
+psi_gumbel <- function(t, theta){exp(-t^(1/theta))}
+
+psi_inv_gumbel <- function(u, theta){(-log(u))^theta}
+```
+
+1. algoritmus Gumbel kopulára:
+
+```{r,eval=TRUE, echo=TRUE}
+d = 2
+n = 3000
+
+par(pty="s", mfrow = c(1, 4), mar = c(1,1,3,1))
+
+for (tau in taus){
+  theta = theta_gumbel(tau)
+  
+  psi <- function(t){
+    psi_gumbel(t, theta)
+  }
+  
+  copula1 = matrix(0,n,2)
+  for (i in 1:n){
+    V <- rstable(1, 1/theta, 1, (cos(pi/(2*theta)))^theta, 0, pm = 1)
+    X <- runif(2)
+    copula1[i,] = psi(-log(X)/V)
+  }
+  
+  plot(copula1, pch=20, cex=0.5, xlim=c(0,1), ylim=c(0,1), xlab="", ylab="", main=paste("τ = ", tau, "\nθ = ", theta))
+}
+```
+
+$\psi$ függvény és annak inverze Clayton kopula esetén
+
+```{r,eval=TRUE, echo=TRUE}
+
+psi_clayton <- function(t, theta){(1+t)^(-1/theta)}
+
+psi_inv_clayton <- function(u, theta){u^(-theta)-1}
+```
+
+1. algoritmus Clayton kopulára:
+
+```{r,eval=TRUE, echo=TRUE}
+
+d = 2
+n = 3000
+
+par(pty="s", mfrow = c(1, 4), mar = c(1,1,3,1))
+
+for (tau in taus){
+  theta = theta_clayton(tau)
+  
+  psi <- function(t){
+    psi_clayton(t, theta)
+  }
+  
+  copula2 = matrix(0,n,2)
+  for (i in 1:n){
+    V <- rgamma(1, 1/theta)
+    X <- runif(2)
+    copula2[i,] = psi(-log(X)/V)
+  }
+  
+  plot(copula2, pch=20, cex=0.5, xlim=c(0,1), ylim=c(0,1), xlab="", ylab="", main=paste("τ = ", tau, "\nθ = ", theta))
+}
+
+```
+
+Alternatíva a $\texttt{pairs}$ parancsra, amely az egydimenziós peremeket is megjeleníti
+
+```{r,eval=TRUE, echo=TRUE}
+plotCopula <- function(copulaSample){
+  
+  d = dim(copulaSample)[2]
+  par(pty="s", mfrow = c(d, d), mar = rep(1,4))
+
+  for (i in 1:d){
+    for (j in 1:d){
+      plot(copulaSample[,i], copulaSample[,j], pch=20, cex=0.5, xlim=c(0,1), ylim=c(0,1), xlab="", ylab="")
+    }
+  }
+}
+```
+
+Háromdimenziós egymásba ágyazott Clayton kopula
+
+```{r,eval=TRUE, echo=TRUE}
+thetas <- c(theta_clayton(0.2), theta_clayton(0.8))
+
+C <- onacopula("C", C(0.5, 1, C(8, 2:3)))
+sample <- rnacopula(3000, C)
+
+plotCopula(sample)
+```
+
+Páros-négydimenziós egymásba ágyazott Clayton kopula
+
+```{r,eval=TRUE, echo=TRUE}
+C <- onacopula("C", C(1, c(), list(C(3, 1:2), C(8, 3:4))))
+sample <- rnacopula(3000, C)
+
+plotCopula(sample)
+```
+
+Hétdimenziós egymásba ágyazott Gumbel kopula
+
+```{r,eval=TRUE, echo=TRUE}
+taus <- c(0, 0.5, 2/3, 0.75, 0.8, 5/6)
+thetas <- theta_gumbel(taus)
+
+
+C <- onacopula("G", C(1, 1, C(2, 2, C(3, 3, C(4, 4, C(5, 5, C(6, 6:7)))))))
+sample <- rnacopula(3000, C)
+
+plotCopula(sample)
+```
+
+Kriptovaluta adatok beolvasása
+
+```{r,eval=TRUE, echo=TRUE}
+df <- read.csv("cryp_logret_2023.csv")
+df <- data.frame(df)
+uu = pobs(df)
+
+summary(uu)
+```
+
+Pszeudomegfigyelések ábrázolása
+
+```{r,eval=TRUE, echo=TRUE}
+plotCopula(uu)
+```
+
+3 kriptovaluta ábrázolása
+
+```{r,eval=TRUE, echo=TRUE}
+xs <- c(1:2920)
+
+par(pty="s", mfrow = c(1, 3))
+
+plot(xs, df$BTCUSD, col = 1, main = "Bitcoin", xlab = "", ylab = "")
+plot(xs, df$ETHUSD, col = 2, main = "Ethereum", xlab = "", ylab = "")
+plot(xs, df$DOGE.USD, col = 3, main = "Dogecoin", xlab = "", ylab = "")
+```
+
+Korrelációs mátrix
+
+```{r,eval=TRUE, echo=TRUE}
+corrs = cor(uu, method="kendall")
+corrplot(corrs, method = 'number')
+```
+
+Minta négydimenzióra csökkentése
+
+```{r,eval=TRUE, echo=TRUE}
+uu4dim <- uu[,c(1,2,5,8)]
+```
+
+t-kopula illesztés a kétdimenziós peremekre
+
+```{r,eval=TRUE, echo=TRUE}
+result <- array(, dim = c(4,4,2))
+for (i in c(1:4)){
+  for (j in c(1:4)){
+    if (i > j){
+      selected <- uu4dim[,c(i,j)]
+      gof <- gofCopula(tCopula(dim = 2, df.fixed = TRUE), selected, N = 50, estim.method="itau")
+      result[i,j,1] <- gof$parameter
+      result[i,j,2] <- gof$p.value
+    }
+  }
+}
+result
+```
+
+Az eredmények ábrázolása
+
+```{r,eval=TRUE, echo=TRUE}
+par(pty="s", mfrow = c(4, 4), mar = c(1,1,1,1))
+
+for (i in c(1:4)){
+  for (j in c(1:4)){
+    if (i > j){
+      pvalue = round(result[i,j,1], 5)
+      param = round(result[i,j,2], 5)
+      plot(x = 1:10, y = 1:10, ann = F,bty = "n",type = "n", xaxt = "n", yaxt = "n")
+      text(x = 5.5,y = 8, pvalue, col = "green", cex = 2.5, font = 2)
+      text(x = 5.5,y = 3, param, col = "red", cex = 2.5, font = 2)
+      box()
+    }
+    if (i == j){
+      plot(x = 1:10, y = 1:10, ann = F,bty = "n",type = "n", xaxt = "n", yaxt = "n")
+      text(x = 5.5,y = 5.5, colnames(uu4dim)[i], cex = 2, , font = 2)
+    }
+    if (i < j){plot(uu4dim[,c(i,j)])}
+  }
+}
+```
+
+Legjobb kopulamodell kiválasztása a kétdimenziós peremekre
+
+```{r,eval=TRUE, echo=TRUE}
+par(pty="s", mfrow = c(4, 4), mar = c(1,1,1,1))
+for (i in c(1:4)){
+  for (j in c(1:4)){
+    if (i > j){
+      selected <- uu4dim[,c(i,j)]
+      selectedCopula <- BiCopSelect(uu4dim[,i], uu4dim[,j], familyset = NA)
+      family <- selectedCopula$familyname
+      par <- round(selectedCopula$par, 5)
+      df <- round(selectedCopula$par2, 5)
+      plot(x = 1:10, y = 1:10, ann = F,bty = "n",type = "n", xaxt = "n", yaxt = "n")
+      text(x = 5.5,y = 8.5, family, cex = 2, , font = 2)
+      text(x = 5.5,y = 5.5, par, cex = 2, , font = 2, col = "blue")
+      text(x = 5.5,y = 2.5, df, cex = 2, , font = 2, col = "blue")
+      box()
+    }
+    if (i == j){
+      plot(x = 1:10, y = 1:10, ann = F,bty = "n",type = "n", xaxt = "n", yaxt = "n")
+      text(x = 5.5,y = 5.5, colnames(uu4dim)[i], cex = 2, , font = 2)
+    }
+    if (i < j){plot(uu4dim[,c(i,j)])}
+  }
+}
+```
+
+Páros-négydimenziós egymásba ágyazott Gumbel kopula
+
+```{r,eval=TRUE, echo=TRUE}
+C <- onacopula("G", C(2, NULL, list(C(4, 1:2), C(6, 3:4)))) 
+sample <- rnacopula(3000, C)
+plotCopula(sample)
+```
+
+A kopulastruktúra visszabecslése a szimulált adatokból
+
+```{r,eval=TRUE, echo=TRUE}
+result <- estimate.copula(sample, margins = "edf")
+result
+```
+
+A fastruktúra ábrázolása
+
+```{r,eval=TRUE, echo=TRUE}
+plot(result)
+```
+
+Hibaszámítás
+
+```{r,eval=TRUE, echo=TRUE}
+errors <- matrix(,nrow=100,ncol=5)
+errors_params <- array(dim = c(100, 5, 3))
+sample_sizes <- c(100,250,500,2500,10000)
+C <- onacopula("G", C(2, NULL, list(C(4, 1:2), C(6, 3:4)))) 
+for (i in c(1:5)){
+  n <- sample_sizes[i]
+  for (j in c(1:100)){
+    sample <- rnacopula(n, C)
+    result <- estimate.copula(sample, margins = "edf")
+    params <- sort(get.params(result))
+    errors_params[j,i,] <- params
+    err = sqrt((params[1]-2)^2 + (params[2]-4)^2 + (params[3]-6)^2)
+    errors[j,i] <- err
+  }
+}
+```
+
+Paraméterek becsült értékének ábrázolása boxplot ábrán
+
+```{r,eval=TRUE, echo=TRUE}
+errors_df <- data.frame(errors_params)
+boxplot(errors_df, col = c(rep("red",5), rep("yellow",5),rep("blue",5)), at = c(1:5,6:10,11:15), xaxt = "n", xlab="Mintaméretek: 100, 250, 500, 2500, 10000", ylab="Paraméter becsült értéke")
+axis(side = 1, at = c(3,8,13), labels = c("Paraméter 1", "Paraméter 2", "Paraméter 3"))
+```
+
+Hibák ábrázolása boxplot ábrán
+
+```{r,eval=TRUE, echo=TRUE}
+boxplot(errors, xlab="Minta mérete", ylab="Hiba", col="yellow", names=sample_sizes)
+```
+
+Függvény, mely kiszámolja egy pont főátlótól való távolságát
+
+```{r,eval=TRUE, echo=TRUE}
+dist_from_diag <- function(x,y){
+  s <- abs(x-y)
+  sqrt(2)*s/2
+}
+```
+
+Szimulált adatokra becsült kopula illeszkedésvizsgálata grafikus módszerrel
+
+```{r,eval=TRUE, echo=TRUE}
+G.cop <- hac(type = 1, tree = list(list("X1", "X2", 4), list("X3", "X4", 6), 2))
+data <- rHAC(3000, G.cop)
+
+G.estimate <- estimate.copula(data, margins = "edf")
+
+probs.emp = emp.copula.self(data, proc = "M")
+
+sim.data <- rHAC(3000, G.estimate)
+probs <-  pHAC(X = sim.data, hac = G.estimate)
+
+result <- data.frame(sort(probs), sort(probs.emp))
+
+dist <- round(mean(dist_from_diag(result$sort.probs., result$sort.probs.emp.)),4)
+legend_text <- paste0("Átlótól való átlagos távolság: ", dist)
+plot(result, xlab="Valós valószínűségek", ylab="Tapasztalati valószínűségek", col="blue")
+lines(c(0,1), c(0,1), col = "red", lwd = 3, lty = 1)
+legend(0, 1, legend=legend_text,  fill = "blue", cex = 1) 
+```
+
+Szimulált adatokra manuálisan illesztett kopula illeszkedésvizsgálata grafikus módszerrel
+
+```{r,eval=TRUE, echo=TRUE}
+G.estimate2 <- hac(type = 1, tree = list("X1", "X2", "X3", "X4", 4))
+
+sim.data <- rHAC(3000, G.estimate2)
+probs <-  pHAC(X = sim.data, hac = G.estimate2)
+
+result <- data.frame(sort(probs), sort(probs.emp))
+
+dist <- round(mean(dist_from_diag(result$sort.probs., result$sort.probs.emp.)),4)
+legend_text <- paste0("Átlótól való átlagos távolság: ", dist)
+plot(result, xlab="Valós valószínűségek", ylab="Tapasztalati valószínűségek", col="darkgreen")
+lines(c(0,1), c(0,1), col = "red", lwd = 3, lty = 1)
+legend(0, 1, legend=legend_text,  fill = "darkgreen", cex = 1) 
+```
+
+Példa vine kopulára
+
+```{r,eval=TRUE, echo=TRUE}
+Matrix <- c(5, 2, 3, 1, 4,
+            0, 2, 3, 4, 1,
+            0, 0, 3, 4, 1,
+            0, 0, 0, 4, 1,
+            0, 0, 0, 0, 1)
+Matrix <- matrix(Matrix, 5, 5)
+
+family <- c(0, 1, 3, 4, 4,
+            0, 0, 3, 4, 1,
+            0, 0, 0, 4, 1,
+            0, 0, 0, 0, 3,
+            0, 0, 0, 0, 0)
+family <- matrix(family, 5, 5)
+
+par <- c(0, 0.2, 0.9, 1.5, 3.9,
+         0, 0, 1.1, 1.6, 0.9,
+         0, 0, 0, 1.9, 0.5,
+         0, 0, 0, 0, 4.8,
+         0, 0, 0, 0, 0)
+par <- matrix(par, 5, 5)
+
+par2 <- matrix(0, 5, 5)
+
+RVM <- RVineMatrix(Matrix = Matrix, family = family,
+                   par = par, par2 = par2,
+                   names = c("V1", "V2", "V3", "V4", "V5"))
+
+plot(RVM)
+
+plotCopula(RVineSim(3000, RVM))
+```
+
+Vine kopula illesztése és illeszkedésvizsgálata a dolgozatban meghatározott mérőszámmal 4 dimenziós mintára
+
+```{r,eval=TRUE, echo=TRUE}
+data = uu4dim
+G.estimate <- RVineStructureSelect(data)
+n <- 100
+  
+probs.emp <- sort(emp.copula.self(data, proc = "M"))
+result <- rep(0,n)
+
+for (i in c(1:n)){
+  sim.data <- RVineSim(2920, G.estimate)
+  probs <- emp.copula.self(sim.data, proc = "M")
+  
+  r <- data.frame(sort(probs), probs.emp)
+  
+  result[i] <- mean(dist_from_diag(r$sort.probs., r$probs.emp))
+
+}
+summary(G.estimate)
+result_vine <- result*sqrt(2920)
+score_vine <- round(mean(result_vine),6)
+score_vine
+```
+
+Egymásba ágyazott arkhimédészi kopula illesztése és illeszkedésvizsgálata a dolgozatban meghatározott mérőszámmal 4 dimenziós mintára
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+data = uu4dim
+G.estimate <- estimate.copula(data, margins = "edf")
+n <- 100
+  
+probs.emp <- sort(emp.copula.self(data, proc = "M"))
+result <- rep(0,n)
+
+for (i in c(1:n)){
+  sim.data <- rHAC(2920, G.estimate)
+  probs <- emp.copula.self(sim.data, proc = "M")
+  
+  r <- data.frame(sort(probs), probs.emp)
+  
+  result[i] <- mean(dist_from_diag(r$sort.probs., r$probs.emp))
+
+}
+G.estimate
+result_HAC <- result*sqrt(2920)
+score_HAC <- round(mean(result_HAC),6)
+score_HAC
+```
+
+Gauss kopula illesztése és illeszkedésvizsgálata a dolgozatban meghatározott mérőszámmal 4 dimenziós mintára
+
+```{r,eval=TRUE, echo=TRUE}
+data = uu4dim
+G.estimate <- fitCopula(normalCopula(dim=4, dispstr = "un"), data, method="ml")@copula
+n <- 100
+  
+probs.emp <- sort(emp.copula.self(data, proc = "M"))
+result <- rep(0,n)
+
+for (i in c(1:n)){
+  sim.data <- rCopula(2920, G.estimate)
+  probs <- emp.copula.self(sim.data, proc = "M")
+  
+  r <- data.frame(sort(probs), probs.emp)
+  
+  result[i] <- mean(dist_from_diag(r$sort.probs., r$probs.emp))
+
+}
+G.estimate
+result_gauss <- result*sqrt(2920)
+score_gauss <- round(mean(result_gauss),6)
+score_gauss
+```
+
+t kopula illesztése és illeszkedésvizsgálata a dolgozatban meghatározott mérőszámmal 4 dimenziós mintára
+
+```{r,eval=TRUE, echo=TRUE}
+data = uu4dim
+G.estimate <- fitCopula(tCopula(dim=4, dispstr = "un", df.fixed = FALSE), data, method="ml")@copula
+n <- 100
+  
+probs.emp <- sort(emp.copula.self(data, proc = "M"))
+result <- rep(0,n)
+
+for (i in c(1:n)){
+  sim.data <- rCopula(2920, G.estimate)
+  probs <- emp.copula.self(sim.data, proc = "M")
+  
+  r <- data.frame(sort(probs), probs.emp)
+  
+  result[i] <- mean(dist_from_diag(r$sort.probs., r$probs.emp))
+
+}
+G.estimate
+result_t <- result*sqrt(2920)
+score_t <- round(mean(result_t),6)
+score_t
+```
+
+t teszt, hogy a kopulák erőssége szignifikánsan eltér-e
+
+```{r,eval=TRUE, echo=TRUE}
+t_test_data <- data.frame(result_t, result_gauss, result_HAC, result_vine)
+names <- c("t", "Gauss", "Egymásba\n ágyazott\n arkimédészi", "Vine")
+
+par(pty="s", mfrow = c(4, 4), mar = c(1,1,1,1))
+for (i in c(1:4)){
+  for (j in c(1:4)){
+    if (i < j){
+      pvalue = t.test(t_test_data[i], t_test_data[j])$p.value
+      if (pvalue < 0.01){
+        color <- "red"
+      } else {
+        color <- "green"
+      }
+      plot(x = 1:10, y = 1:10, ann = F,bty = "n",type = "n", xaxt = "n", yaxt = "n")
+      text(x = 5.5,y = 5.5, round(pvalue, 6), col = color, cex = 2.5, font = 2)
+      box()
+    }
+    if (i == j){
+      plot(x = 1:10, y = 1:10, ann = F,bty = "n",type = "n", xaxt = "n", yaxt = "n")
+      text(x = 5.5,y = 5.5, names[i], cex = 2, , font = 2)
+    }
+    if (i > j){plot(x = 1:10, y = 1:10, ann = F,bty = "n",type = "n", xaxt = "n", yaxt = "n")}
+  }
+}
+```
+
+Vine kopula illesztése és illeszkedésvizsgálata a dolgozatban meghatározott mérőszámmal 11 dimenziós mintára
+
+```{r,eval=TRUE, echo=TRUE}
+data = uu
+G.estimate <- RVineStructureSelect(data)
+vine.estimate <- G.estimate
+n <- 100
+  
+probs.emp <- sort(emp.copula.self(data, proc = "M"))
+result <- rep(0,n)
+
+for (i in c(1:n)){
+  sim.data <- RVineSim(2920, G.estimate)
+  probs <- emp.copula.self(sim.data, proc = "M")
+  
+  r <- data.frame(sort(probs), probs.emp)
+  
+  result[i] <- mean(dist_from_diag(r$sort.probs., r$probs.emp))
+
+}
+summary(G.estimate)
+result_vine_2 <- result*sqrt(2920)
+score_vine_2 <- round(mean(result_vine_2),6)
+score_vine_2
+```
+
+Egymásba ágyazott arkhimédészi kopula illesztése és illeszkedésvizsgálata a dolgozatban meghatározott mérőszámmal 11 dimenziós mintára
+
+```{r,eval=TRUE, echo=TRUE}
+data = uu
+G.estimate <- estimate.copula(data, margins = "edf")
+n <- 100
+  
+probs.emp <- sort(emp.copula.self(data, proc = "M"))
+result <- rep(0,n)
+
+for (i in c(1:n)){
+  sim.data <- rHAC(2920, G.estimate)
+  probs <- emp.copula.self(sim.data, proc = "M")
+  
+  r <- data.frame(sort(probs), probs.emp)
+  
+  result[i] <- mean(dist_from_diag(r$sort.probs., r$probs.emp))
+
+}
+G.estimate
+result_HAC_2 <- result*sqrt(2920)
+score_HAC_2 <- round(mean(result_HAC_2),6)
+score_HAC_2
+```
+
+Gauss kopula illesztése és illeszkedésvizsgálata a dolgozatban meghatározott mérőszámmal 11 dimenziós mintára
+
+```{r,eval=TRUE, echo=TRUE}
+data = uu
+G.estimate <- fitCopula(normalCopula(dim=11, dispstr = "un"), data, method="ml")@copula
+n <- 100
+  
+probs.emp <- sort(emp.copula.self(data, proc = "M"))
+result <- rep(0,n)
+
+for (i in c(1:n)){
+  sim.data <- rCopula(2920, G.estimate)
+  probs <- emp.copula.self(sim.data, proc = "M")
+  
+  r <- data.frame(sort(probs), probs.emp)
+  
+  result[i] <- mean(dist_from_diag(r$sort.probs., r$probs.emp))
+
+}
+G.estimate
+result_gauss_2 <- result*sqrt(2920)
+score_gauss_2 <- round(mean(result_gauss_2),6)
+score_gauss_2
+```
+
+t kopula illesztése és illeszkedésvizsgálata a dolgozatban meghatározott mérőszámmal 11 dimenziós mintára
+
+```{r,eval=TRUE, echo=TRUE}
+data = uu
+G.estimate <- fitCopula(tCopula(dim=11, dispstr = "un", df.fixed = FALSE), data, method="ml")@copula
+n <- 100
+  
+probs.emp <- sort(emp.copula.self(data, proc = "M"))
+result <- rep(0,n)
+
+for (i in c(1:n)){
+  sim.data <- rCopula(2920, G.estimate)
+  probs <- emp.copula.self(sim.data, proc = "M")
+  
+  r <- data.frame(sort(probs), probs.emp)
+  
+  result[i] <- mean(dist_from_diag(r$sort.probs., r$probs.emp))
+
+}
+G.estimate
+result_t_2 <- result*sqrt(2920)
+score_t_2 <- round(mean(result_t_2),6)
+score_t_2
+```
+
+Szimulált adatok eredeti skálára konvertálása
+
+```{r,eval=TRUE, echo=TRUE}
+simulated <- RVineSim(2920, vine.estimate)
+original <- df
+
+restored <- data.frame(matrix(NA, nrow=nrow(simulated), ncol=ncol(simulated)))
+colnames(restored) <- colnames(original)
+for (j in 1:ncol(simulated)) {
+  ranks <- rank(simulated[, j])
+  restored[, j] <- sort(original[, j])[ranks]
+}
+
+pairs(restored)
+pairs(df)
+```
+
+Annak a valószínűségei, hogy legalább 9 kriptovaluta értéke több mint p%-ot csökken a szimulált adatokból
+
+```{r,eval=TRUE, echo=TRUE}
+n <- 100
+m <- 9
+ps <- c(0.01, 0.025, 0.05)
+
+result_1 <- rep(0,n)
+result_2 <- rep(0,n)
+result_3 <- rep(0,n)
+
+for (i in c(1:n)){
+  
+  simulated <- RVineSim(2920, vine.estimate)
+  original <- df
+  
+  restored <- data.frame(matrix(NA, nrow=nrow(simulated), ncol=ncol(simulated)))
+  colnames(restored) <- colnames(original)
+  for (j in 1:ncol(simulated)) {
+    ranks <- rank(simulated[, j])
+    restored[, j] <- sort(original[, j])[ranks]
+  }
+  
+  rows_to_keep_1 <- rowSums(restored < -ps[1]) >= m
+  filtered_1 <- restored[rows_to_keep_1, ]
+  result_1[i] <- (nrow(filtered_1)*100)/2920
+  
+  rows_to_keep_2 <- rowSums(restored < -ps[2]) >= m
+  filtered_2 <- restored[rows_to_keep_2, ]
+  result_2[i] <- (nrow(filtered_2)*100)/2920
+  
+  rows_to_keep_3 <- rowSums(restored < -ps[3]) >= m
+  filtered_3 <- restored[rows_to_keep_3, ]
+  result_3[i] <- (nrow(filtered_3)*100)/2920
+}
+
+boxplot_data <- data.frame(result_1, result_2, result_3)
+colnames(boxplot_data) <- ps
+boxplot(boxplot_data, xlab = "p%", ylab = "Százalékos valószínűség", col = c("yellow", "orange","red"))
+```
+
+Annak a valószínűségei, hogy legalább 9 kriptovaluta értéke több mint p%-ot csökken az eredeti adatokból
+
+```{r,eval=TRUE, echo=TRUE}
+n <- 100
+m <- 9
+ps <- c(0.01, 0.025, 0.05)
+
+result_1 <- rep(0,n)
+result_2 <- rep(0,n)
+result_3 <- rep(0,n)
+
+  
+rows_to_keep_1 <- rowSums(df < -ps[1]) >= m
+filtered_1 <- df[rows_to_keep_1, ]
+result_1 <- (nrow(filtered_1)*100)/2920
+
+rows_to_keep_2 <- rowSums(df < -ps[2]) >= m
+filtered_2 <- df[rows_to_keep_2, ]
+result_2 <- (nrow(filtered_2)*100)/2920
+
+rows_to_keep_3 <- rowSums(df < -ps[3]) >= m
+filtered_3 <- df[rows_to_keep_3, ]
+result_3 <- (nrow(filtered_3)*100)/2920
+
+
+result_1
+result_2
+result_3
+```
